@@ -1,14 +1,15 @@
 # Final Project Repo for STAT 425 Applied Regression and Design
 Fall 2017
+
 ## Credit to team members:
-- __Chuanyue Shen__
+- _Chuanyue Shen_
 - Lijun Zhang
 - Lingzhu Gu
 
-Note: The project was done locally in Fall 2017. Related files were uploaded to this repo just for future reference. Do not guarantee the full usage of these files. 
+**Note: The project was done locally in Fall 2017. Related files were uploaded to this repo just for future reference. Full usage of these files is not guaranteed.**
 
 ## Executive Summary
-Please find more details in the report.
+_Please find more details in the report._
 
 In this project, we analyze the AmesHousing data, which includes housing price in Ames, Iowa from 2006 to 2010, and other 81 variables. Sale price is treated as response, while others are used as possible predictors. There are 2930 observations initially including some missing data and false data, thus data preprocessing is performed first. The features with the same value exceeding 80% is deleted, and the observation with missing categorical feature data is also discarded. The observation with missing numerical feature data is still reserved, but the value of numerical feature is replaced with its median. 2880 observations are left after preprocessing, with 42 categorical features and 35 numerical features. 
 
