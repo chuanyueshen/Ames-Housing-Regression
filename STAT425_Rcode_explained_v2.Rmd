@@ -1,0 +1,325 @@
+---
+title: "STAT 425 Project"
+author: "Chuanyue Shen"
+date: "11/20/2017"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+[Housing data from Kaggle](https://www.kaggle.com/c/house-prices-advanced-regression-techniques)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Data Loading
+```{r}
+train <- read.csv("train.csv", stringsAsFactors = F)
+test <- read.csv("test.csv", stringsAsFactors = F)
+test$SalePrice <- rep(NA, 1459)
+all <- rbind(train,test)
+head(all)
+```
+
+```{r}
+# Summarize missing data
+sapply(all[,1:80], function(x) sum(is.na(x)))
+```
+
+### Data Pre-processing
+```{r}
+library(ggplot2)
+library(rpart)
+
+# Replace NA with "None" when a particular feature is not there
+
+# Alley, PoolQC, Fence, MiscFeature 
+all$Alley[is.na(all$Alley)] <- "None"
+all[all$PoolArea == 0,]$PoolQC <- "None"
+all$Fence[is.na(all$Fence)] <- "None"
+all$MiscFeature[is.na(all$MiscFeature)] <- "None"
+```
+```{r}
+# MasVnrType and MasVnrArea
+summary(as.factor(all$MasVnrType))
+# See if "None" corresponds to 0 area
+table(all$MasVnrArea[all$MasVnrType == "None"])
+# Assign the type of other 4 observations to NA
+all$MasVnrType <- ifelse(all$MasVnrArea == 0, "None", all$MasVnrType)
+
+# NA's are less than 5% of total samples, delete later
+```
+
+```{r}
+# BsmtQual, BsmtCond, BsmtExposure, BsmtFinType1, BsmtFinType2, BsmtFinSF1, BsmtFinSF2, BsmtUnfSF, TotalBsmtSF
+idx1 <- is.na(all$BsmtQual) & is.na(all$BsmtCond) & is.na(all$BsmtExposure) & is.na(all$BsmtFinType1) & is.na(all$BsmtFinType2)
+
+# 79 observations have no basement. Assign None to 5 properties
+all$BsmtQual[which(idx1 == TRUE)] <- "None"
+all$BsmtCond[which(idx1 == TRUE)] <- "None"
+all$BsmtExposure[which(idx1 == TRUE)] <- "None"
+all$BsmtFinType1[which(idx1 == TRUE)] <- "None"
+all$BsmtFinType2[which(idx1 == TRUE)] <- "None"
+# Check rest NA's in 5 properties, less than 5%, delete later
+table(is.na(all$BsmtQual))
+table(is.na(all$BsmtCond))
+table(is.na(all$BsmtExposure))
+table(is.na(all$BsmtFinType1) & is.na(all$BsmtFinType2))
+all$BsmtFinSF1[which(all$BsmtFinType1 == "None")] <- 0
+all$BsmtUnfSF[which(all$BsmtFinType1 == "None" | all$BsmtFinType1 == "None")] <- 0
+all$TotalBsmtSF[which(all$BsmtFinType1 == "None" | all$BsmtFinType1 == "None")] <- 0
+all$BsmtFinSF2[which(all$BsmtFinType2 == "None")] <- 0
+```
+
+```{r}
+# GarageType, GarageYrBlt, GarageFinish, GarageQual, GarageCond, GarageCars, GarageArea
+table(is.na(all$GarageType))
+table(is.na(all$GarageYrBlt))
+table(is.na(all$GarageFinish))
+table(is.na(all$GarageQual))
+table(is.na(all$GarageCond))
+
+idx2 <- is.na(all$GarageType) & is.na(all$GarageYrBlt) & is.na(all$GarageFinish) & is.na(all$GarageQual) & is.na(all$GarageCond)
+table(idx2)
+
+# Set None based on idx2
+all$GarageYrBlt[which(idx2 == TRUE)] <- "None"
+all$GarageFinish[which(idx2 == TRUE)] <- "None"
+all$GarageQual[which(idx2 == TRUE)] <- "None"
+all$GarageCond[which(idx2 == TRUE)] <- "None"
+all$GarageType[which(idx2 == TRUE)] <- "None"
+
+# GarageCars, GarageArea. Only one NA, delete later
+table(is.na(all$GarageCars) & is.na(all$GarageArea))
+```
+
+```{r}
+# Electrical
+# only one missing, delete later
+table(is.na(all$Electrical))
+```
+
+```{r}
+# LotFrontage
+table(is.na(all$LotFrontage))
+
+# Likely predictors 
+col.pred <- c("MSSubClass", "MSZoning", "LotFrontage", "LotArea", "Street", "Alley", "LotShape", "LandContour", "LotConfig", "LandSlope", "BldgType", "HouseStyle", "YrSold", "SaleType", "SaleCondition")
+
+# predict LotFrontage
+LotFrontage.pred <- rpart(LotFrontage ~ ., 
+                    data = all[!is.na(all$LotFrontage),col.pred],
+                    na.action=na.omit,
+                    method = "anova")
+
+# Plot the existing and imputed values and check if imputed values follow the same patten
+all.frontage <- as.data.frame(rbind(cbind(rep("Existing", nrow(all[!is.na(all$LotFrontage),])),all[!is.na(all$LotFrontage), "LotFrontage"]),
+                     cbind(rep("Imputed", nrow(all[is.na(all$LotFrontage),])),
+                           ceiling(predict(LotFrontage.pred, all[is.na(all$LotFrontage),col.pred])))))
+
+ggplot(all.frontage, aes (x = as.numeric(as.character(V2)), colour = V1)) +
+    geom_density()+
+    xlab("Lot Frontage")+
+  theme(legend.title=element_blank())
+
+# Imputed value seem to be fine.
+all$LotFrontage[is.na(all$LotFrontage)] <- ceiling(predict(LotFrontage.pred, all[is.na(all$LotFrontage),col.pred]))
+```
+
+```{r}
+# FireplaceQu
+table(is.na(all$FireplaceQu))
+summary(as.factor(all$Fireplaces))
+# Assign None to NA
+all$FireplaceQu[is.na(all$FireplaceQu)] <- "None"
+```
+
+```{r}
+newtrain <- all[1:1460,-c(1)]
+newtest <- all[1461:2919,-c(1,ncol(all))]
+sapply(newtrain[,1:80], function(x) sum(is.na(x)))
+sapply(newtest[,1:79], function(x) sum(is.na(x)))
+```
+```{r}
+# Missing data in other properties are extreme minors, delete later
+newtrain2 <- na.omit(newtrain)
+newtest2 <- na.omit(newtest)
+```
+
+### Categorical variables & Numeric variables
+```{r}
+# Numerical varialble
+newtrain3 <- newtrain2[c(3,4,19,20,26,34,36,37,38,43,44,45,46,47,48,49,50,51,52,54,56,61,62,66,67,68,69,70,71,75,76,77)]
+
+# Categorical
+cat = colnames(newtrain2[-c(3,4,19,20,26,34,36,37,38,43,44,45,46,47,48,49,50,51,52,54,56,61,62,66,67,68,69,70,71,75,76,77)])
+#convert cat to factors
+for (name in cat) {
+      newtrain2[[name]] = factor(newtrain2[[name]], exclude = NULL)
+}
+newtrain4 <- cbind(newtrain3,newtrain2[-c(3,4,19,20,26,34,36,37,38,43,44,45,46,47,48,49,50,51,52,54,56,61,62,66,67,68,69,70,71,75,76,77)])
+# We convert all factor variables to numeric in order to call cor()
+num_newtrain4 = newtrain4
+for(name in colnames(num_newtrain4)){
+    if(is.factor(num_newtrain4[[name]])) 
+    num_newtrain4[[name]] = as.numeric(num_newtrain4[[name]])
+}
+```
+
+### Colinearity
+```{r}
+round(cor(num_newtrain4), dig=2)
+tmp <- cor(num_newtrain4)
+tmp[upper.tri(tmp)] <- 0
+diag(tmp) <- 0
+# Above two commands can be replaced with 
+# tmp[!lower.tri(tmp)] <- 0
+#
+num_newtrain4 <- num_newtrain4[,!apply(tmp,2,function(x) any(abs(x) >= 0.9))]
+
+# lotarea, yearbuilt,BsmtFinSF1,BsmtFinSF2,,x2ndflrsf,lowqualfinsf,,,,KitchenAbvGr,,WoodDeckSF,,,X3SsnPorch,ScreenPorch,PoolArea,MiscVal, mosold,
+round(cor(num_newtrain4), dig=2)
+colSums(num_newtrain4 == 0)
+# delete the variable with 80% the same values 
+newtrain5 <- num_newtrain4[-c(7,12,15,26,27,28,29,30)]
+```
+
+###Tranformation of outcome
+```{r}
+library(MASS)
+model1=lm(SalePrice~.,data=newtrain5)
+bc=boxcox(model1, lambda = seq(-2, 2, 1/10))
+lambda=bc$x[which.max(bc$y)]
+# transformation of Y
+newtrain5$SalePrice <- (newtrain5$SalePrice)^lambda
+# new model after Y trans
+model2=lm(SalePrice~.,data=newtrain5)
+summary(model2)  
+```
+
+### Variable selection
+```{r}
+# BIC
+model0=lm(SalePrice~1,data=newtrain5)
+n=dim(newtrain5)[1]
+model3=step(model0, scope=list(lower=model0, upper=model2), direction = "forward", k=log(n) )
+```
+
+### Poly for model3
+```{r}
+poly1 = lm(SalePrice~poly(GrLivArea,YearBuilt,GarageCars,Fireplaces,BsmtFullBath,FullBath,YearRemodAdd, degree=1, raw = FALSE), data=newtrain5)
+poly2 = lm(SalePrice~poly(GrLivArea,YearBuilt,GarageCars,Fireplaces,BsmtFullBath,FullBath,YearRemodAdd, degree=2, raw = FALSE), data=newtrain5)
+poly3 = lm(SalePrice~poly(GrLivArea,YearBuilt,GarageCars,Fireplaces,BsmtFullBath,FullBath,YearRemodAdd, degree=3, raw = FALSE), data=newtrain5)
+summary(poly1)$coef[,4]
+summary(poly2)$coef[,4]
+summary(poly3)$coef[,4]
+```
+
+```{r}
+model4=lm(SalePrice~OverallQual + GrLivArea^2 + YearBuilt +
+    OverallCond + GarageCars^2 + Fireplaces^2 + BsmtFullBath + MSSubClass +
+    MSZoning + HeatingQC + GarageType + FullBath + BsmtExposure +
+    SaleCondition + LotShape + YearRemodAdd^2 + LandSlope + Functional +
+    PoolQC + KitchenQual + BsmtFinType1, data = newtrain5)
+```
+
+```{r}
+# only use the interaction between related variables (no interaction between numerical variables)
+model5=lm(SalePrice~OverallQual * OverallCond + GrLivArea^2 + YearBuilt + GarageType * GarageCars^2 + Fireplaces^2 + FullBath + MSSubClass * MSZoning + HeatingQC + BsmtFullBath * BsmtExposure * BsmtFinType1 + SaleCondition + LotShape * LandSlope + YearRemodAdd^2 + Functional + PoolQC + KitchenQual, data = newtrain5)
+```
+
+### ANOVA
+```{r}
+anova(model5)
+```
+```{r}
+# only use the interaction between related variables (no interaction between numerical variables)
+model6=lm(SalePrice~OverallQual * OverallCond + GrLivArea^2 + YearBuilt + GarageType * GarageCars^2 + Fireplaces^2 + FullBath + MSSubClass * MSZoning + HeatingQC + BsmtFullBath + BsmtExposure + BsmtFinType1 + SaleCondition + LotShape + LandSlope + YearRemodAdd^2 + Functional + PoolQC + KitchenQual, data = newtrain5)
+anova(model6)
+anova(model4,model6)
+```
+Use model6.
+
+### Diagnostic
+```{r}
+library(faraway)
+n=nrow(newtrain5)
+p=ncol(newtrain5)-1 
+
+### high-leverage points
+lev=influence(model6)$hat
+lev_points =colnames(lev[lev>2*p/n])
+# no high leverage points
+
+# outliers 
+jack=rstudent(model6);
+cutoff = abs(qt(0.05/(2*n),n-p-1))
+newtrain6=newtrain5
+k=NULL
+for (i in 1:n){
+  if (abs(jack[i]) > cutoff){
+    k=cbind(k,i)
+  }
+}
+newtrain6=newtrain6[-c(k),]
+# 7 outlier
+
+# check for high influential points
+cook = cooks.distance(model6)
+k=NULL
+for (i in 1:n){
+  if (abs(cook[i]) >= 1){
+    k=cbind(k,i)
+  }
+}
+# no high influential points
+halfnorm(cook,labs=row.names(newtrain6$Y),ylab="Cook's distances")
+max(cook) # No high influential points since (Di<=1)
+
+model7=lm(SalePrice~OverallQual * OverallCond + GrLivArea^2 + YearBuilt + GarageType * GarageCars^2 + Fireplaces^2 + FullBath + MSSubClass * MSZoning + HeatingQC + BsmtFullBath + BsmtExposure + BsmtFinType1 + SaleCondition + LotShape + LandSlope + YearRemodAdd^2 + Functional + PoolQC + KitchenQual, data = newtrain6)
+```
+
+### Assumption check
+#### Fitted versus Residuals Plot
+```{r}
+plot(fitted(model7), resid(model7), col = "grey", pch = 20,
+     xlab = "Fitted", ylab = "Residuals", main = "Data from Model3.2_2")
+abline(h = 0, col = "darkorange", lwd = 2)
+```
+For any fitted value, the residuals seem roughly centered at 0, indicating that the linearity assumption is not violated. However, it is also observed that for extremely small and large fitted values, the spread of the residuals is more narrow. The constant variance assumption is violated here.
+
+#### Breusch-Pagan Test
+```{r}
+library(lmtest)
+bptest(model7)
+```
+The p-value is less than 0.05, thus reject the null of homoscedasticity. The constant variance assumption is violated, matching our findings with a fitted versus residuals plot.
+
+#### Histograms
+```{r}
+par()
+hist(resid(model7),
+     xlab   = "Residuals",
+     main   = "Histogram of Residuals, model3.2_2",
+     col    = "darkorange",
+     border = "dodgerblue",
+     breaks = 20)
+```
+#### Q-Q plot
+```{r}
+qqnorm(resid(model7), main = "Normal Q-Q Plot, model7", col = "darkgrey")
+qqline(resid(model7), col = "dodgerblue", lwd = 2)
+```
+The suspect Q-Q plot suggests that the errors may not follow a normal distribution.
+
+### Shapiro-Wilk Test
+```{r}
+shapiro.test(resid(model7))
+```
+The small p-value indicates that there is only a small probability the data sampled from a normal distribution.
+
+### Training error
+```{r}
+train_MSE=mean(model7$residuals^2)
+```
